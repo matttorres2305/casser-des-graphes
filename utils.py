@@ -14,7 +14,7 @@ import itertools
 
 import heapq as hq
 
-filepath = "./data/User/workspaceStorage/"
+filepath = "./data/User/workspaceStorage/casserdesgraphes"
 
 """Alias for os.path.join() with work folder, with optional additional folder."""
 def path(file:str, folder:str=""):
@@ -51,12 +51,18 @@ def convert_mode_to_str(mode:int):
     return modes_list[mode]
 
 """Returns a sorted items list in decreasing occurences of items in argument list of list of items."""
-def most_common(lst):
+def most_common(lst, score=False):
     data_temp = collections.Counter(list(itertools.chain.from_iterable(lst))).most_common()
-    data = []
-    for i in range(len(data_temp)):
-        data.append(data_temp[i][0])
-    return data
+    if score:
+        data_dict = {}
+        for i in range(len(data_temp)):
+            data_dict[data_temp[i][0]] = data_temp[i][1]
+        return data_dict
+    else:
+        data = []
+        for i in range(len(data_temp)):
+            data.append(data_temp[i][0])
+        return data
 
 """Computes the inverse cumulative distribution of a distribution and returns it with the x values in the log space."""
 def compute_icdf(distribution, x_size:int, logscale=True):
@@ -232,9 +238,8 @@ def modified_chamfer_distance(cut, cluster, G, verbose = False):
 def find_best_cuts(graph_name:str, cut_list:list, already_min = None, plot_name = ""):
     G = nx.read_gml(path(graph_name))
     weight_dict = nx.get_edge_attributes(G, "weight")
-    # print(cut_list)
     if not already_min:
-        min = 10000
+        min = 10000000
         new_cut_list = []
         for i in range(len(cut_list)):
             cut = cut_list[i]
@@ -284,7 +289,10 @@ def find_best_cuts(graph_name:str, cut_list:list, already_min = None, plot_name 
 
 
 """Function to build a graph from a connected component of a cut graph. The whole graph must be a simple Graph."""
-def build_graph_from_component(whole_graph, component, original_weight_dict:dict, original_length_dict:dict, super_former_dict:dict={}):
+def build_graph_from_component(whole_graph, component, original_weight_dict:dict, original_length_dict:dict, former_dict:dict):
+    nformer_dict = {}
+    for former_node in former_dict.keys():
+        nformer_dict[former_node] ={"former": former_dict[former_node]}
     edge_list = []
     weight_dict = {}
     length_dict = {}
@@ -293,18 +301,11 @@ def build_graph_from_component(whole_graph, component, original_weight_dict:dict
             edge_list.append(edge)
             weight_dict[edge] = {"weight" : original_weight_dict[edge]}
             length_dict[edge] = {"length" : original_length_dict[edge]}
-    if super_former_dict:
-        former_dict = {}
-        for node in whole_graph.nodes:
-            former_dict[node] = {"former" : super_former_dict[node]}
     G = nx.Graph(edge_list)
     nx.set_edge_attributes(G, weight_dict)
     nx.set_edge_attributes(G, length_dict)
-    nx.set_node_attributes(G, former_dict)
-    if super_former_dict:
-        G_result = nx.convert_node_labels_to_integers(G, first_label=0)
-    else:
-        G_result = nx.convert_node_labels_to_integers(G, first_label=0, label_attribute="former")
+    nx.set_node_attributes(G, nformer_dict)
+    G_result = nx.convert_node_labels_to_integers(G, first_label=0)
     return G_result
 
 def plot_distribution_degres(G, plot_name:str, log_scale=False, 
@@ -874,41 +875,44 @@ def forceatlas2_layout(
 if __name__ == "__main__":
     pass
 
-    # # # Reformat attack json
-    # ccfa_dict = read_json(path("attack_ccfa.json"))
-    # content = ccfa_dict["content"]
-    # ccfa_dict.pop("content")
-    # ccfa_dict["content"] = {}
-    # ccfa_dict["content"]["paris"] = {}
-    # ccfa_dict["content"]["paris"]["static"] = {}
-    # for k in content["k"].keys():
-    #     key = f"k={k}, imbalance=0.03"
-    #     ccfa_dict["content"]["paris"]["static"][key] = content["k"][k]
-    # for imb in content["imbalance"].keys():
-    #     key = f"k=2, imbalance={imb}"
-    #     ccfa_dict["content"]["paris"]["static"][key] = content["imbalance"][imb]
-    # for pool in content["pool size"].keys():
-    #     key = f"n={pool}"
-    #     ccfa_dict["content"]["paris"]["static"][key] = content["pool size"][pool]
-    # write_json(ccfa_dict, path("attack_ccfa_new.json"))
+    # # Reformat attack jsons
+    # ca_dict_old = read_json(path("attack_ca.json"))
+    # ca_dict = {"description" : "Robustness metrics along cost under Cut Attacks. Content contains results for the city, then the ordering, then the cuts parameters. Robustness metrics include LCC metric (for the whole attack) and efficiency (until edge 151).",
+    # "content" : {}}
+    # ica_dict = {"description" : "Robustness metrics along cost under Iterated Cuts Attacks. Content contains results for the city, then the ordering, then the cuts parameters. Robustness metrics include LCC metric (for the whole attack) and efficiency (until edge 151).",
+    # "content" : {}}
+    # ca_dict["content"]["paris"] = {}
+    # cua_dict["content"]["paris"][f"k=2, imbalance=0.03"] = {}
+    # cua_dict["content"]["paris"][f"k=2, imbalance=0.1"] = {}
+    # for l in ["25000", "20000", "30000"]:
+    #     if l == "25000":
+    #         cua_dict["content"]["paris"][f"k=2, imbalance=0.1"][l] = {}
+    #         cua_dict["content"]["paris"][f"k=2, imbalance=0.1"][l]["CF"] = {}
+    #     cua_dict["content"]["paris"][f"k=2, imbalance=0.03"][l] = {}
+    #     cua_dict["content"]["paris"][f"k=2, imbalance=0.03"][l]["CF"] = {}
+    #     for i in ["0", "1", "2", "3", "4"]:
+    #         if l == "25000":
+    #             cua_dict["content"]["paris"][f"k=2, imbalance=0.1"][l]["CF"][i] = ccfa_dict["content"]["0.1"][l][i]
+    #         cua_dict["content"]["paris"][f"k=2, imbalance=0.03"][l]["CF"][i] = ccfa_dict["content"]["0.03"][l][i]
+    # write_json(cua_dict, path("attack_cua.json"))
 
 
-    # Plot of efficiency for BC-CA(k, imb) VS BCA
-    bet_dict = read_json(path(("attack_betweenness.json")))["content"]["dynamic"]
-    ca_dict = read_json(path("attack_ca.json"))["content"]["paris"]["static"]["BC"]
-    plt.figure()
-    plt.plot(bet_dict["cost"][:151], bet_dict["efficiency"], label=f'BCA')
-    for key in ca_dict.keys():
-        key_ = key.split(", ")
-        k, imb = key_[0].split("=")[1], key_[1].split("=")[1]
-        plt.plot(ca_dict[f"k={k}, imbalance={imb}"]["cost"], ca_dict[f"k={k}, imbalance={imb}"]["efficiency"], label=f'BC-CA: k={k}, imbalance={imb}', alpha=0.7)
-    plt.xlabel('cost')
-    plt.ylabel('efficiency')
-    plt.xlim(-10,400)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(path(f"attack_ca_bc_bestcut1000_efficiency.png"), dpi = 300)
-    plt.close()
+    # # Plot of efficiency for BC-CA(k, imb) VS BCA
+    # bet_dict = read_json(path(("attack_betweenness.json")))["content"]["dynamic"]
+    # ca_dict = read_json(path("attack_ca.json"))["content"]["paris"]["static"]["BC"]
+    # plt.figure()
+    # plt.plot(bet_dict["cost"][:151], bet_dict["efficiency"], label=f'BCA')
+    # for key in ca_dict.keys():
+    #     key_ = key.split(", ")
+    #     k, imb = key_[0].split("=")[1], key_[1].split("=")[1]
+    #     plt.plot(ca_dict[f"k={k}, imbalance={imb}"]["cost"], ca_dict[f"k={k}, imbalance={imb}"]["efficiency"], label=f'BC-CA: k={k}, imbalance={imb}', alpha=0.7)
+    # plt.xlabel('cost')
+    # plt.ylabel('efficiency')
+    # plt.xlim(-10,400)
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(path(f"attack_ca_bc_bestcut1000_efficiency.png"), dpi = 300)
+    # plt.close()
 
     # # Plot of LCC metric and efficiency for CCFA(l, id) VS BCA
     # bet_dict = read_json(path(("attack_betweenness.json")))["content"]["dynamic"]

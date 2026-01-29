@@ -47,7 +47,7 @@ def make_chamfer_array(cuts_filename:str, graph_filename:str, result_filename:st
     print(f'Chamfer array done in {time.time() - start} s. Saved at {result_path}.')
 
 """Plots the distance distribution from the chamfer distance matrix."""
-def plot_chamfer_stat(chamferarray_filename:str, plot_name:str, cumsum=True, save_data_filename:str = "", zoom = None):
+def plot_chamfer_stat(chamferarray_filename:str, plot_name:str, cumsum=True, save_data_filename:str = "", zoom = None, l=None):
     with open(path(chamferarray_filename), 'rb') as f:
         chamfer_distance_array = np.load(f)
     n = chamfer_distance_array.shape[0]
@@ -63,7 +63,10 @@ def plot_chamfer_stat(chamferarray_filename:str, plot_name:str, cumsum=True, sav
         xvalues, yvalues = compute_icdf(positive_values, 10000, logscale=False)
 
         plt.figure()
-        plt.plot(xvalues, yvalues)
+        plt.plot(xvalues, yvalues, label = 'distribution')
+        if l:
+            plt.vlines(l, min(yvalues), max(yvalues), linestyles='dotted', label=rf"$l={l}$")
+            plt.legend(loc='lower right')
         plt.xlabel('distances between cuts')
         plt.ylabel('cumulative distribution of distances')
 
@@ -88,61 +91,6 @@ def plot_chamfer_stat(chamferarray_filename:str, plot_name:str, cumsum=True, sav
     result_path = path(plot_name)
     plt.savefig(result_path, dpi=300)
     print(f'Chamfer distances distribution saved at {result_path}.')
-
-"""Function to make a graph from the chamfer distance matrix, using either a threshold or a weights on edges"""
-def make_chamfer_graph(cut_filename:str, chamfer_filename:str, base_graph_filename:str, result_filename:str,
-                       threshold:int = None, distance_to_weight = div):
-    start = time.time()
-
-    with open(path(chamfer_filename), 'rb') as f:
-        chamfer_distance_array = np.load(f)
-    total_chamfer_array = chamfer_distance_array + chamfer_distance_array.transpose() + np.diag(np.ones(n)) + 1
-    n = np.shape(total_chamfer_array)[0]
-    cut_list = read_file(path(cut_filename))
-
-    G_P = nx.read_gml(path(base_graph_filename))
-    weight_dict = nx.get_edge_attributes(G_P, "weight")
-
-    if threshold:
-        thresholdmax = threshold
-    else:
-        thresholdmax = 500000
-    G_cuts = nx.Graph()
-    for i in range(n):
-        cost = sum([int(weight_dict[edge]) for edge in cut_list[i]])
-        G_cuts.add_node(i, cost = cost)
-    for i in range(n):
-        for j in range(i+1, n):
-            if threshold:
-                if total_chamfer_array[i, j] < thresholdmax:
-                    G_cuts.add_edge(i, j)
-            else:
-                weight = distance_to_weight(total_chamfer_array[i, j])
-                G_cuts.add_edge(i, j, weight = weight)
-
-    print(f"Threshold is {thresholdmax}")
-    print(f"Density is {2 * len(G_cuts.edges)/(n * (n-1))}")
-
-    nx.write_gml(G_cuts, path(result_filename))
-
-"""Does the whole Louvain clustering using the threshold method from the chamfer distance matrix (for technical reasons) as input."""
-def louvain_clustering_pipeline(cut_filename:str, chamfer_array_filename:str, base_graph_filename:str, chamfer_graph_filename:str, result_filename:str,
-                                threshold:int):
-    start = time.time()
-
-    make_chamfer_graph(cut_filename, chamfer_array_filename, base_graph_filename, chamfer_graph_filename, threshold)
-    
-    G_chamfer = nx.read_gml(path(chamfer_graph_filename))
-
-    communities_list = nx.community.louvain_communities(G_chamfer, seed = 0)
-    communities_list.sort(key=len, reverse=True)
-    
-    result_path = path(result_filename)
-    write_file(communities_list, result_path)
-
-    print(f'Louvain clustering done in {time.time() - start} s. Saved at {result_path}.')
-
-
 
 """Chooses 2 centroids for the KMeans clustering, according to the KMeans++ method."""
 def kmeansplusplus_for_2_clusters(cut_list:list, base_graph):
@@ -327,7 +275,11 @@ def birch_clustering_pipeline(max_diameter:int, result_name:str,
     print(f'Birch clustering done in {time.time() - start} s. Saved at {path(result_name)}.')
 
 """Plots the city graph with highlighted cuts depending on clusters or a specific cut list. Projection is hardcoded for Paris."""
-def plot_clusters(graph_name:str, plot_name:str, cuts:list, com_list:list, specific_cut_list:list = None, one_com:bool = False):
+def plot_clusters(graph_name:str, plot_name:str, cuts:list, com_list:list, specific_cut_list:list = None, one_com:bool = False, onecut_by_cluster:bool=False):
+    if onecut_by_cluster:
+        for i in range(len(com_list)):
+            com_list[i] = [com_list[i][0]]
+    
     G = nx.MultiGraph(nx.read_gml(path(graph_name)))
 
     G.graph['crs'] = ox.settings.default_crs
@@ -335,7 +287,7 @@ def plot_clusters(graph_name:str, plot_name:str, cuts:list, com_list:list, speci
         
     edge_keys = list(G.edges)
     edgecolor_dict = dict.fromkeys(edge_keys, 'gray')
-    large_dict = dict.fromkeys(edge_keys, 0.25)
+    large_dict = dict.fromkeys(edge_keys, 0.3)
     if not one_com:
         color_dict = {
         0 : 'red',
@@ -345,7 +297,10 @@ def plot_clusters(graph_name:str, plot_name:str, cuts:list, com_list:list, speci
         4 : 'cyan'
         }
         for i in range(5,len(com_list)):
-            color_dict[i] = "white"
+            if onecut_by_cluster:
+                color_dict[i] = "gray"
+            else:
+                color_dict[i] = "white"
 
         custom_lines = []
         legend = []
@@ -385,8 +340,9 @@ def plot_clusters(graph_name:str, plot_name:str, cuts:list, com_list:list, speci
 
     
     plt.figure()
-    ox.plot.plot_graph(G, edge_color=list(edgecolor_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()))
-    plt.legend(custom_lines, legend)
+    ox.plot.plot_graph(G, edge_color=list(edgecolor_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()), bgcolor = 'white')
+    if not onecut_by_cluster:
+        plt.legend(custom_lines, legend)
     plt.savefig(path(plot_name), dpi=300)
     plt.close()
 
@@ -585,34 +541,61 @@ if __name__ == "__main__":
     #                    graph_filename='graph_clean_shanghai',
     #                    result_filename="chamfer_array_imb0.21_shanghai")
 
-    # plot_chamfer_stat(chamferarray_filename='chamfer_array_imb0.1_shanghai',
-    #                   plot_name='chamfer_distribution_imb0.1_shanghai.png',
-    #                   cumsum=True,
-    #                   save_data_filename="chamfer_distribution_data_imb0.21_shanghai",
-    #                   zoom = 16)
+    # plot_chamfer_stat(chamferarray_filename='chamfer_array_cuts1000_k2_imb0.1_paris',
+    #                   plot_name='chamfer_distribution_cuts1000_k2_imb0.1_paris.png',
+    #                   cumsum= True,
+    #                   l = 25000)
 
-    # Birch clustering
-    G = nx.read_gml(path('graph_clean_shanghai'))
-    imb = 0.21
-    cut_list = read_file(path(f'cuts1000_k2_imb{imb}_shanghai'))
-    md = 1000000
-    with open(path(f'chamfer_array_imb{imb}_shanghai'), 'rb') as f:
-        chamfer_array = np.load(f)
-    distances_array = chamfer_array + chamfer_array.transpose() + np.diag(np.ones(chamfer_array.shape[0])) + 1
-    birch_clustering_pipeline(max_diameter=md,
-                              result_name=f'clusters_birch_shanghai_md{md}_imb{imb}',
-                              cut_list=cut_list,
-                              graph=G,
-                              distances_array=chamfer_array)
+    # # Birch clustering
+    # G = nx.read_gml(path('graph_clean_shanghai'))
+    # imb = 0.21
+    # cut_list = read_file(path(f'cuts1000_k2_imb{imb}_shanghai'))
+    # md = 1000000
+    # with open(path(f'chamfer_array_imb{imb}_shanghai'), 'rb') as f:
+    #     chamfer_array = np.load(f)
+    # distances_array = chamfer_array + chamfer_array.transpose() + np.diag(np.ones(chamfer_array.shape[0])) + 1
+    # birch_clustering_pipeline(max_diameter=md,
+    #                           result_name=f'clusters_birch_shanghai_md{md}_imb{imb}',
+    #                           cut_list=cut_list,
+    #                           graph=G,
+    #                           distances_array=chamfer_array)
 
     # Plot of clusters on the graph
-    md = md
-    clusters_list = read_file(path(f'clusters_birch_shanghai_md{md}_imb{imb}'))
-    cut_list = read_file(path(f'cuts1000_k2_imb{imb}_shanghai'))
-    plot_clusters(graph_name='graph_clean_shanghai',
-                  plot_name=f'clusters_birch_shanghai_md{md}_imb{imb}.png',
-                  cuts=cut_list, com_list=clusters_list,
-                  one_com=False)
+    md = 25000
+    com03 = read_file(path('clusters_l25000_imb0.1', 'clusters'))[:4]
+    cuts03 = read_file(path('cuts1000_k2_imb0.1_mode2_clean', 'cuts'))
+    G = nx.MultiGraph(nx.read_gml(path("graph_paris_clean")))
+    G.graph['crs'] = ox.settings.default_crs
+    G = ox.project_graph(G, to_crs='epsg:2154') ## pour le mettre dans le même référentiel que les données de Paris
+    edge_keys = list(G.edges)
+    edgecolor_dict = dict.fromkeys(edge_keys, 'gray')
+    large_dict = dict.fromkeys(edge_keys, 0.3)
+    color_dict = {0:"black", 1:"magenta", 2:"red", 3:"orange"}
+    custom_lines = []
+    legend = []
+    custom_lines.append(Line2D([0], [0], color=color_dict[0], lw=4))
+    legend.append(r"$i=1$")
+    custom_lines.append(Line2D([0], [0], color=color_dict[1], lw=4))
+    legend.append(r"$i=2$")
+    custom_lines.append(Line2D([0], [0], color=color_dict[2], lw=4))
+    legend.append(r"$i=3$")
+    custom_lines.append(Line2D([0], [0], color=color_dict[3], lw=4))
+    legend.append(r"$i=4$")
+    com_list = [com03]
+    cut_list = [cuts03]
+    for i in range(1):
+        for com_id in range(len(com_list[i])):
+            for cut_id in com_list[i][com_id]:
+                for edge in cut_list[i][int(cut_id)]:
+                    edge = (edge[0], edge[1], 0)
+                    edgecolor_dict[edge] = color_dict[com_id+i*2]
+                    large_dict[edge] = 2
+    plt.figure()
+    ox.plot.plot_graph(G, edge_color=list(edgecolor_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()), bgcolor = 'white')
+    plt.legend(custom_lines, legend)
+    plt.savefig(path("paris_clusters.png"), dpi=300)
+    plt.close()
+    
 
     # # Plot of a md value resulting clusters distances distributions
     # for md in [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000]:
@@ -644,18 +627,18 @@ if __name__ == "__main__":
     #                     plot_by_size=True,
     #                     md_list=md)
 
-    plot_clusters_costs(clusters_filename=f'clusters_birch_shanghai_md{md}_imb0.1',
-                        cuts_filename='cuts1000_k2_imb0.1_shanghai',
-                        graph_filename="graph_clean_shanghai",
-                        plot_name=f"costssize_clusters_shanghai_md{md}.png",
-                        plot_by_size=True
-                        )
+    # plot_clusters_costs(clusters_filename=f'clusters_birch_shanghai_md{md}_imb0.1',
+    #                     cuts_filename='cuts1000_k2_imb0.1_shanghai',
+    #                     graph_filename="graph_clean_shanghai",
+    #                     plot_name=f"costssize_clusters_shanghai_md{md}.png",
+    #                     plot_by_size=True
+    #                     )
 
-    plot_clusters_diameters(clusters_filename=f'clusters_birch_shanghai_md{md}_imb0.1',
-                            array_filename='chamfer_array_imb0.1_shanghai',
-                            l_value=md,
-                        plot_name=f"diameterssize_clusters_shanghai_md{md}.png",
-                        plot_by_size=True)
+    # plot_clusters_diameters(clusters_filename=f'clusters_birch_shanghai_md{md}_imb0.1',
+    #                         array_filename='chamfer_array_imb0.1_shanghai',
+    #                         l_value=md,
+    #                     plot_name=f"diameterssize_clusters_shanghai_md{md}.png",
+    #                     plot_by_size=True)
 
     # size_array = np.zeros(n)
     # for i in range(n):

@@ -314,12 +314,14 @@ def parse_graph_to_kahip(graph_name, result_name):
     
     nodes_neighbors_edges = {}
     for edge in G.edges:
+        # print(edge)
         if edge[0] not in nodes_neighbors_edges.keys():
             nodes_neighbors_edges[edge[0]] = set()
         nodes_neighbors_edges[edge[0]].add((edge[1], weight_dict[edge]))
         if edge[1] not in nodes_neighbors_edges.keys():
             nodes_neighbors_edges[edge[1]] = set()
         nodes_neighbors_edges[edge[1]].add((edge[0], weight_dict[edge]))
+    # print(nodes_neighbors_edges)
 
     result_path = path(result_name)
     with open(result_path, "w") as file:

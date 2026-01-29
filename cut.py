@@ -70,7 +70,7 @@ def make_cuts(graph_name:str, kahip_graph:str, cut_number = 1000, k = 2, imbalan
     filename = f'kahip_cuts{cut_number}_k{k}_imb{imbalance}_mode{mode}'
     if alt_result_filename:
         filename = alt_result_filename
-    save_file = path(filename)
+    save_file = path(filename, "cuts")
     write_file(kahip_cut_list, save_file)
     if verbose:
         print(f"Generated {cut_number} cuts in {time.time() -start} s. Saved at {save_file}.")
