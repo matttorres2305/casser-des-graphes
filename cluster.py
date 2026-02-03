@@ -15,35 +15,46 @@ import kahip
 from utils import *
 from study_cut import plot_graph_with_specific_edges
 
+"""Outputs the Chamfer distance between two cuts i.e. list of edges of a graph G."""
+def chamfer_distance(cut1:list, cut2:list, x_dict:dict, y_dict:dict, distance_type:str):
+    xarray1, xarray2 = np.vectorize(x_dict.get)(np.array(cut1)), np.vectorize(x_dict.get)(np.array(cut2))
+    yarray1, yarray2 = np.vectorize(y_dict.get)(np.array(cut1)), np.vectorize(y_dict.get)(np.array(cut2))
+    x1 = (xarray1[:,0] + xarray1[:,1]) / 2 # longitude if unprojected
+    y1 = (yarray1[:,0] + yarray1[:,1]) / 2 # latitude if unprojeted
+    x2 = (xarray2[:,0] + xarray2[:,1]) / 2
+    y2 = (yarray2[:,0] + yarray2[:,1]) / 2
+    x1, x2 = np.broadcast_arrays(np.expand_dims(x1, 0), np.expand_dims(x2, 1))
+    y1, y2 = np.broadcast_arrays(np.expand_dims(y1, 0), np.expand_dims(y2, 1))
+    if distance_type == "haversine":
+        distances_array = ox.distance.great_circle(y1, x1, y2, x2)
+    elif distance_type == "euclidean":
+        distances_array = np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+    else:
+        print('Wrong distance_type provided')
+        sys.exit()
+    return np.sum(np.min(distances_array, axis = 1)) + np.sum(np.min(distances_array, axis = 0))
 
-""""Builds the Chamfer distance matrix from stored kahip cuts. Shouldn't be used with more than 1000 cuts, and it's already a one-time use at most."""
+""""Builds the Chamfer distance matrix from stored kahip cuts."""
 def make_chamfer_array(cuts_filename:str, graph_filename:str, result_filename:str,   
-                       load_temp_results_step = -1, temp_results_filename = ""):
-    start = time.time()
-    
-    cut_list = read_file(path(cuts_filename))
+                       distance_type:str="haversine"):
+    assert distance_type in ["euclidean", "haversine"]
+    start = time.time() 
+    cut_list = read_file(path(cuts_filename, 'cuts'))
     n = len(cut_list)
     G = nx.read_gml(path(graph_filename))
-
+    if distance_type == "euclidean":
+        G = nx.MultiGraph(G)
+        G.graph['crs'] = ox.settings.default_crs
+        G = ox.project_graph(G, to_crs='epsg:2154') ## pour le mettre dans le même référentiel que les données de Paris
+    x_dict, y_dict = nx.get_node_attributes(G, 'x'), nx.get_node_attributes(G, 'y')
     chamfer_distance_array = np.ones((n, n))*(-1)
-    if load_temp_results_step != -1:
-        with open(path(temp_results_filename), 'rb') as f:
-            chamfer_distance_array = np.load(f)
-            
-    for i in range(load_temp_results_step + 1, n):
+    for i in range(0, n):
         for j in range(i+1, n):
-            chamfer_distance_array[i, j] = chamfer_distance_forcuts(cut_list[i], cut_list[j], G)
+            chamfer_distance_array[i, j] = chamfer_distance(cut_list[i], cut_list[j], x_dict, y_dict, distance_type)
         print(f'Computed {i}/{n} of the Chamfer distance array')
-        if i % (n // 10) == 0:
-            temp_path = path(f'{result_filename}_temp{i}')
-            with open(temp_path, 'wb') as f:
-                np.save(f, chamfer_distance_array)
-            print(f'Saved temporary results at {temp_path}.')
-
     result_path = path(result_filename)
     with open(result_path, 'wb') as f:
         np.save(f, chamfer_distance_array)
-
     print(f'Chamfer array done in {time.time() - start} s. Saved at {result_path}.')
 
 """Plots the distance distribution from the chamfer distance matrix."""
@@ -536,11 +547,12 @@ def plot_clusters_diameters(clusters_filename:str, array_filename:str,
 
 if __name__ == "__main__":
     pass
-    
-    # make_chamfer_array(cuts_filename='cuts1000_k2_imb0.21_shanghai',
-    #                    graph_filename='graph_clean_shanghai',
-    #                    result_filename="chamfer_array_imb0.21_shanghai")
 
+    make_chamfer_array(cuts_filename='cuts1000_k2_imb0.1_mode2_clean',
+                       graph_filename='graph_paris_clean',
+                       result_filename="chamfer_array_imb0.1",   
+                       distance_type="haversine")
+    
     # plot_chamfer_stat(chamferarray_filename='chamfer_array_cuts1000_k2_imb0.1_paris',
     #                   plot_name='chamfer_distribution_cuts1000_k2_imb0.1_paris.png',
     #                   cumsum= True,
@@ -560,41 +572,41 @@ if __name__ == "__main__":
     #                           graph=G,
     #                           distances_array=chamfer_array)
 
-    # Plot of clusters on the graph
-    md = 25000
-    com03 = read_file(path('clusters_l25000_imb0.1', 'clusters'))[:4]
-    cuts03 = read_file(path('cuts1000_k2_imb0.1_mode2_clean', 'cuts'))
-    G = nx.MultiGraph(nx.read_gml(path("graph_paris_clean")))
-    G.graph['crs'] = ox.settings.default_crs
-    G = ox.project_graph(G, to_crs='epsg:2154') ## pour le mettre dans le même référentiel que les données de Paris
-    edge_keys = list(G.edges)
-    edgecolor_dict = dict.fromkeys(edge_keys, 'gray')
-    large_dict = dict.fromkeys(edge_keys, 0.3)
-    color_dict = {0:"black", 1:"magenta", 2:"red", 3:"orange"}
-    custom_lines = []
-    legend = []
-    custom_lines.append(Line2D([0], [0], color=color_dict[0], lw=4))
-    legend.append(r"$i=1$")
-    custom_lines.append(Line2D([0], [0], color=color_dict[1], lw=4))
-    legend.append(r"$i=2$")
-    custom_lines.append(Line2D([0], [0], color=color_dict[2], lw=4))
-    legend.append(r"$i=3$")
-    custom_lines.append(Line2D([0], [0], color=color_dict[3], lw=4))
-    legend.append(r"$i=4$")
-    com_list = [com03]
-    cut_list = [cuts03]
-    for i in range(1):
-        for com_id in range(len(com_list[i])):
-            for cut_id in com_list[i][com_id]:
-                for edge in cut_list[i][int(cut_id)]:
-                    edge = (edge[0], edge[1], 0)
-                    edgecolor_dict[edge] = color_dict[com_id+i*2]
-                    large_dict[edge] = 2
-    plt.figure()
-    ox.plot.plot_graph(G, edge_color=list(edgecolor_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()), bgcolor = 'white')
-    plt.legend(custom_lines, legend)
-    plt.savefig(path("paris_clusters.png"), dpi=300)
-    plt.close()
+    # # Plot of clusters on the graph
+    # md = 25000
+    # com03 = read_file(path('clusters_l25000_imb0.1', 'clusters'))[:4]
+    # cuts03 = read_file(path('cuts1000_k2_imb0.1_mode2_clean', 'cuts'))
+    # G = nx.MultiGraph(nx.read_gml(path("graph_paris_clean")))
+    # G.graph['crs'] = ox.settings.default_crs
+    # G = ox.project_graph(G, to_crs='epsg:2154') ## pour le mettre dans le même référentiel que les données de Paris
+    # edge_keys = list(G.edges)
+    # edgecolor_dict = dict.fromkeys(edge_keys, 'gray')
+    # large_dict = dict.fromkeys(edge_keys, 0.3)
+    # color_dict = {0:"black", 1:"magenta", 2:"red", 3:"orange"}
+    # custom_lines = []
+    # legend = []
+    # custom_lines.append(Line2D([0], [0], color=color_dict[0], lw=4))
+    # legend.append(r"$i=1$")
+    # custom_lines.append(Line2D([0], [0], color=color_dict[1], lw=4))
+    # legend.append(r"$i=2$")
+    # custom_lines.append(Line2D([0], [0], color=color_dict[2], lw=4))
+    # legend.append(r"$i=3$")
+    # custom_lines.append(Line2D([0], [0], color=color_dict[3], lw=4))
+    # legend.append(r"$i=4$")
+    # com_list = [com03]
+    # cut_list = [cuts03]
+    # for i in range(1):
+    #     for com_id in range(len(com_list[i])):
+    #         for cut_id in com_list[i][com_id]:
+    #             for edge in cut_list[i][int(cut_id)]:
+    #                 edge = (edge[0], edge[1], 0)
+    #                 edgecolor_dict[edge] = color_dict[com_id+i*2]
+    #                 large_dict[edge] = 2
+    # plt.figure()
+    # ox.plot.plot_graph(G, edge_color=list(edgecolor_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()), bgcolor = 'white')
+    # plt.legend(custom_lines, legend)
+    # plt.savefig(path("paris_clusters.png"), dpi=300)
+    # plt.close()
     
 
     # # Plot of a md value resulting clusters distances distributions
