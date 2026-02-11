@@ -46,6 +46,80 @@ def plot_best_cuts_by_cluster(graph_name:str, plot_name:str, cuts_name:str, clus
     plt.savefig(path(plot_name), dpi=300)
     plt.close()
 
+"""Plots the city graph with highlighted attacks. Projection is hardcoded for Paris."""
+def plot_attacks(graph_name:str, plot_name:str, attack_names:list, separated:bool=False, ica_alpha:bool=False):
+    n = len(attack_names)
+    assert n < len(list(mcolors.TABLEAU_COLORS)), "n must be inferior to 10 because we use the classic 10 matplotlib colors."
+    attack_list = []
+    for name in attack_names:
+        attack_list.append(read_file(path(name, "attacks")))
+    G = nx.MultiGraph(nx.read_gml(path(graph_name)))
+    G.graph['crs'] = ox.settings.default_crs
+    G = ox.project_graph(G, to_crs='epsg:2154')
+        
+    if separated:
+        fig, axs = plt.subplots(1, 5, layout='constrained', figsize=(5, 1))
+        edge_keys = list(G.edges)
+        custom_lines = []
+        legend = []
+        for i in range(n):
+            ax = axs[i]
+            color_dict = dict.fromkeys(edge_keys, 'gray')
+            large_dict = dict.fromkeys(edge_keys, 0.1)
+            alpha_dict = dict.fromkeys(edge_keys, 0.1)
+            alpha_norm = 1.
+            custom_lines.append(Line2D([0], [0], color=list(mcolors.TABLEAU_COLORS)[i], lw=4))
+            legend.append(rf"ICA: $i={i+1}$")
+            if ica_alpha:
+                G_ = copy.deepcopy(G)
+            for edge in attack_list[i]:
+                index = attack_list[i].index(edge)
+                edge = (edge[0], edge[1], 0)
+                if edge not in edge_keys:
+                    edge = (edge[1], edge[0], 0)
+                if ica_alpha:
+                    G_.remove_edge(edge[0], edge[1], 0)
+                    alpha_norm = largest_connected_component_size(G_)/len(G_.nodes)
+                color_dict[edge] = list(mcolors.TABLEAU_COLORS)[i]
+                large_dict[edge] = 1
+                alpha_dict[edge] = alpha_norm
+            ox.plot.plot_graph(G, ax=ax,
+                                edge_color=list(color_dict.values()),
+                                node_size=0.01,
+                                edge_linewidth=list(large_dict.values()),
+                                edge_alpha=list(alpha_dict.values()),
+                                bgcolor = 'white')
+        # fig.legend(custom_lines, legend)
+            
+    else:
+        edge_keys = list(G.edges)
+        color_dict = dict.fromkeys(edge_keys, 'gray')
+        large_dict = dict.fromkeys(edge_keys, 0.1)
+        alpha_dict = dict.fromkeys(edge_keys, 0.01)
+        custom_lines = []
+        legend = []
+        for i in range(n):
+            custom_lines.append(Line2D([0], [0], color=list(mcolors.TABLEAU_COLORS)[i], lw=4))
+            legend.append(rf"ICA: $i={i+1}$")
+            for edge in attack_list[i]:
+                edge = (edge[0], edge[1], 0)
+                try:
+                    if color_dict[edge] == 'gray':
+                        color_dict[edge] = list(mcolors.TABLEAU_COLORS)[i]
+                        large_dict[edge] = 2
+                        alpha_dict[edge] = 1/((attack_list.index(edge)+1)/(0.1*len(attack_list))+1)
+                except:
+                    edge = (edge[1], edge[0], 0)
+                    if color_dict[edge] == 'gray':
+                        color_dict[edge] = list(mcolors.TABLEAU_COLORS)[i], 1/((attack_list.index(edge)+1)/(0.1*len(attack_list))+1)
+                        large_dict[edge] = 2
+                        alpha_dict[edge] = 1/((attack_list.index(edge)+1)/(0.1*len(attack_list))+1)
+        plt.figure()
+        ox.plot.plot_graph(G, edge_alpha=list(alpha_dict.values()), edge_color=list(color_dict.values()), node_size=0.01, edge_linewidth=list(large_dict.values()), bgcolor = 'white')
+        plt.legend(custom_lines, legend)
+    plt.savefig(path(plot_name), dpi=300)
+    plt.close()
+
 if __name__ == "__main__":
     pass
     # Plot parameters
@@ -68,6 +142,15 @@ if __name__ == "__main__":
     # plot_best_cuts_by_cluster(graph_name="graph_paris_clean", plot_name=f"paris_cca_k{k}_imb{imb}.png",
     #                           cuts_name=f"cuts1000_k{k}_imb{imb}_mode2_clean",
     #                           clusters_name=f"clusters_l25000_imb{imb}")
+
+    # Targets of diverse (2,0.1)-ICAs on the Paris network
+    k = 2
+    imb = 0.1
+    attacks = []
+    for i in range(5):
+        attacks.append(f"attack_icca_bc_imb{imb}_l25000_cluster{i}_it3")
+    plot_attacks(graph_name="graph_paris_clean", plot_name=f"paris_icca_k{k}_imb{imb}_sep.pdf",
+                attack_names=attacks, separated=True, ica_alpha=True)
 
     # # LCC of ICAs(random, 2, imb) for imb(0.1, 0.03) vs BCA
     # city = "paris"
@@ -94,32 +177,32 @@ if __name__ == "__main__":
     # plt.savefig(path(f"attack_ica_imb_f{order}_k{k}_{metric.split(sep=' ')[0]}.png"), dpi = 300)
     # plt.close()
 
-    # Metric random vs CF vs BC (2,0.1)-ICAs vs BCA
-    city = "paris"
-    metric = "efficiency"
-    k = 2
-    imb = 0.1
-    max_cost = 530
-    min_metric = 0.3
-    order_style = {"random":"dotted", "BC":"dashed", "CF":"dashdot"}
-    order_label = {"random":r"ICA: $f=$random", "BC":r"ICA: $f=$BC", "CF":r"ICA: $f=$CF"}
-    order_color = {"random":"tab:green", "BC":"blue", "CF":"red"}
-    bet_dict = read_json(path("attack_betweenness.json"))["content"][city]["dynamic"]
-    ca_dict = read_json(path("attack_ca.json"))["content"][city]["dynamic"]
-    plt.figure()
-    plt.plot(bet_dict["cost"][:len(bet_dict[metric])], bet_dict[metric], color='black', linewidth=linewidth, linestyle='solid', label=f'BCA')
-    for order in order_style.keys():
-        score = ca_dict[f"{order}3"][f"k={k}, imbalance={imb}"][metric]
-        plt.plot(ca_dict[f"{order}3"][f"k={k}, imbalance={imb}"]["cost"][:len(score)], score, color=order_color[order], linewidth=linewidth, linestyle=order_style[order], label=order_label[order])
-    plt.xlabel('cost')
-    plt.ylabel(metric)
-    plt.xlim(-10, max_cost)
-    plt.ylim(min_metric, 1.02)
-    plt.legend(loc='lower left')
-    plt.tight_layout()
-    metric = metric.split(sep=" ")[0]
-    plt.savefig(path(f"attack_ica_f_imb{imb}_k{k}_{metric}.png"), dpi = 300)
-    plt.close()
+    # # Metric random vs CF vs BC (2,0.1)-ICAs vs BCA
+    # city = "paris"
+    # metric = "efficiency"
+    # k = 2
+    # imb = 0.1
+    # max_cost = 530
+    # min_metric = 0.3
+    # order_style = {"random":"dotted", "BC":"dashed", "CF":"dashdot"}
+    # order_label = {"random":r"ICA: $f=$random", "BC":r"ICA: $f=$BC", "CF":r"ICA: $f=$CF"}
+    # order_color = {"random":"tab:green", "BC":"blue", "CF":"red"}
+    # bet_dict = read_json(path("attack_betweenness.json"))["content"][city]["dynamic"]
+    # ca_dict = read_json(path("attack_ca.json"))["content"][city]["dynamic"]
+    # plt.figure()
+    # plt.plot(bet_dict["cost"][:len(bet_dict[metric])], bet_dict[metric], color='black', linewidth=linewidth, linestyle='solid', label=f'BCA')
+    # for order in order_style.keys():
+    #     score = ca_dict[f"{order}3"][f"k={k}, imbalance={imb}"][metric]
+    #     plt.plot(ca_dict[f"{order}3"][f"k={k}, imbalance={imb}"]["cost"][:len(score)], score, color=order_color[order], linewidth=linewidth, linestyle=order_style[order], label=order_label[order])
+    # plt.xlabel('cost')
+    # plt.ylabel(metric)
+    # plt.xlim(-10, max_cost)
+    # plt.ylim(min_metric, 1.02)
+    # plt.legend(loc='lower left')
+    # plt.tight_layout()
+    # metric = metric.split(sep=" ")[0]
+    # plt.savefig(path(f"attack_ica_f_imb{imb}_k{k}_{metric}.png"), dpi = 300)
+    # plt.close()
 
     # # Efficiency random vs CF vs BC (2,0.1)-CAs vs BCA
     # city = "paris"
@@ -200,30 +283,30 @@ if __name__ == "__main__":
     # plt.savefig(path(f"attack_cca_fBC_imb{imb}_{metric}.png"), dpi = 300)
     # plt.close()
 
-    # # Plot of diverse CFAs
+    # # Efficiency of diverse (BC,2,0.1)-ICAs vs BCA
     # city = "paris"
+    # metric = "efficiency"
     # k = 2
     # imb = 0.1
+    # order = 'BC3'
     # l = 25000
-    # order = 'CF'
+    # i_style = {0:"dotted", 1:"dashed", 2:"dashdot", 3:(0, (1, 10)), 4:(0, (5, 10))}
+    # max_score = 530
     # bet_dict = read_json(path("attack_betweenness.json"))["content"][city]["dynamic"]
-    # cca_dict = read_json(path("attack_cca.json"))["content"][city]
-    # colors = {0:"black", 1:"magenta", 2:"red", 3:"orange"}
-    # for metric in ["LCC metric","efficiency"]:
-    #     plt.figure()
-    #     plt.plot(bet_dict["cost"][:len(bet_dict[metric])], bet_dict[metric], label=f'BCA')
-    #     cluster_list = read_file(path(f"clusters_l{l}_imb{imb}", "clusters"))
-    #     for i in range(4):
-    #         score = cca_dict[f"k=2, imbalance={imb}"][f"{l}"][order][f"{i}"][metric]
-    #         plt.plot(cca_dict[f"k=2, imbalance={imb}"][f"{l}"][order][f"{i}"]["cost"][:len(score)], score, color = colors[i], label=rf"CFA: $i={i+1}$")
-    #     plt.xlabel('cost')
-    #     plt.ylabel(metric)
-    #     if metric == "LCC metric":
-    #         plt.xlim(-10, 550)
-    #     plt.legend()
-    #     plt.tight_layout()
-    #     plt.savefig(path(f"attack_cfa_diversity_{metric}.png"), dpi = 300)
-    #     plt.close()
+    # cca_dict = read_json(path("attack_cca.json"))["content"]["ICA"]
+    # plt.figure()
+    # plt.plot(bet_dict["cost"][:len(bet_dict[metric])], bet_dict[metric], color='black', linewidth=linewidth, linestyle='solid', label=f'BCA')
+    # for i in range(5):
+    #     score = cca_dict[f"k={k}, imbalance={imb}"][f"{l}"][order][f"{i}"][metric]
+    #     plt.plot(cca_dict[f"k={k}, imbalance={imb}"][f"{l}"][order][f"{i}"]["cost"][:len(score)], score, linestyle=i_style[i], linewidth=linewidth, label=rf"ICA: $i={i+1}$")
+    # plt.xlabel('cost')
+    # plt.ylabel(metric)
+    # plt.xlim(-10, max_score)
+    # plt.ylim(0.3, 1.02)
+    # plt.legend(loc='lower left')
+    # plt.tight_layout()
+    # plt.savefig(path(f"attack_icca_fBC_imb{imb}_{metric}.png"), dpi = 300)
+    # plt.close()
 
     
     # # Plot of CFA vs IC-CFA vs IC-BCA
